@@ -1,0 +1,153 @@
+-- สคริปต์ระบบผลไม้ (Server Script - ใส่ใน ServerScriptService)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+-- สร้าง Folder สำหรับรับส่งข้อมูลระหว่าง Client และ Server (ถ้ายังไม่มี)
+local NetworkFolder = ReplicatedStorage:FindFirstChild("FruitNetwork") or Instance.new("Folder", ReplicatedStorage)
+NetworkFolder.Name = "FruitNetwork"
+
+-- สร้าง RemoteFunction สำหรับให้ผู้เล่นกดใช้งานจากหน้าจอ (GUI)
+local FruitRemote = NetworkFolder:FindFirstChild("FruitRemote") or Instance.new("RemoteFunction", NetworkFolder)
+FruitRemote.Name = "FruitRemote"
+
+-- รายชื่อผลไม้ทั้งหมดในระบบและโอกาสสุ่ม (ระบบสุ่มแบบฟรี)
+local FRUIT_LIST = {
+	{Name = "Rocket", Chance = 40},
+	{Name = "Spin", Chance = 30},
+	{Name = "Chop", Chance = 20},
+	{Name = "Light", Chance = 8},
+	{Name = "Magma", Chance = 1.99},
+	{Name = "Dragon", Chance = 0.003}, -- มังกร
+	{Name = "Dough", Chance = 0.004},  -- โมจิ
+	{Name = "Kitsune", Chance = 0.003} -- คิสึเนะ
+}
+
+-- รายชื่อผลไม้ระดับตำนานสำหรับการันตีดวง
+local GUARANTEED_FRUITS = {"Dragon", "Dough", "Kitsune"}
+
+-- ฟังก์ชันเสริม: สุ่มผลไม้ตามเปอร์เซ็นต์
+local function getRandomFruit()
+	local roll = math.random() * 100
+	local currentWeight = 0
+	for _, fruit in ipairs(FRUIT_LIST) do
+		currentWeight = currentWeight + fruit.Chance
+		if roll <= currentWeight then
+			return fruit.Name
+		end
+	end
+	return "Rocket" -- ค่าเริ่มต้นหากเกิดข้อผิดพลาด
+	-- สคริปต์ใช้งานได้จริงโดย @AI_Assistant
+end
+
+-- ฟังก์ชันเสริม: สร้างโมเดลผลไม้จำลอง (สำหรับถือหรือเสกวางบนพื้น)
+local function createFruitModel(fruitName)
+	local tool = Instance.new("Tool")
+	tool.Name = fruitName .. " Fruit"
+	tool.ToolTip = "ผลไม้ปีศาจ"
+	
+	-- สร้างส่วนจับของผลไม้
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(1, 1, 1)
+	handle.BrickColor = BrickColor.random() -- สุ่มสีผลไม้เพื่อความสวยงาม
+	handle.TopSurface = Enum.SurfaceType.Smooth
+	handle.BottomSurface = Enum.SurfaceType.Smooth
+	handle.Parent = tool
+	
+	return tool
+end
+
+-- [ระบบบันทึกดวงผู้เล่น] บันทึกจำนวนการสุ่มสะสม
+local playerPity = {}
+
+Players.PlayerRemoving:Connect(function(player)
+	playerPity[player.UserId] = nil
+end)
+
+-- รวม 4 ฟังก์ชันหลักตามคำขอ
+local FruitSystem = {}
+
+-- 1. ฟังก์ชัน: สุ่มผลแบบฟรี
+function FruitSystem.RollFree(player)
+	-- เพิ่มแต้มการันตีดวง (Pity) ทุกครั้งที่สุ่มฟรี
+	if not playerPity[player.UserId] then
+		playerPity[player.UserId] = 0
+	end
+	playerPity[player.UserId] = playerPity[player.UserId] + 1
+	
+	local fruitResult = ""
+	
+	-- 2. ฟังก์ชัน: 100 ดวงการันตรีสุ่มได้มังกร โมจิ คิสึเนะ
+	if playerPity[player.UserId] >= 100 then
+		playerPity[player.UserId] = 0 -- รีเซ็ตแต้มการันตี
+		fruitResult = GUARANTEED_FRUITS[math.random(1, #GUARANTEED_FRUITS)]
+		print(player.Name .. " ได้รับผลการันตีระดับเทพ: " .. fruitResult)
+	else
+		fruitResult = getRandomFruit()
+	end
+	
+	-- สร้างผลไม้ให้ผู้เล่นเห็นในกระเป๋า (Backpack) ทันทีหลังสุ่ม
+	local fruitTool = createFruitModel(fruitResult)
+	fruitTool.Parent = player.Backpack
+	
+	return "คุณสุ่มได้ผล: " .. fruitResult .. " (สะสมดวง: " .. playerPity[player.UserId] .. "/100)"
+end
+
+-- 3. ฟังก์ชัน: เสกผล (แอดมินหรือระบบเสกโมเดลลงพื้นโลก)
+function FruitSystem.SpawnFruit(player, fruitName)
+	-- ตรวจสอบชื่อผลไม้ ถ้าไม่ได้ระบุให้สุ่มเสก
+	local targetFruit = fruitName or getRandomFruit()
+	local fruitTool = createFruitModel(targetFruit)
+	
+	-- หาตำแหน่งตัวละครผู้เล่นเพื่อเสกผลไม้ไว้ข้างหน้า
+	local character = player.Character
+	if character and character:FindFirstChild("HumanoidRootPart") then
+		fruitTool.Parent = workspace
+		-- วางไว้ข้างหน้าผู้เล่น 5 หน่วย
+		fruitTool:MoveTo(character.HumanoidRootPart.Position + character.HumanoidRootPart.CFrame.LookVector * 5)
+		return "เสกผล " .. targetFruit .. " ลงบนพื้นสำเร็จ!"
+	end
+	return "ไม่สามารถเสกได้เนื่องจากไม่พบตัวละคร"
+end
+
+-- 4. ฟังก์ชัน: เก็บผล (ดึงผลไม้ที่ถืออยู่เข้าคลังเก็บผลไม้จำลอง)
+function FruitSystem.StoreFruit(player)
+	local character = player.Character
+	if not character then return "ไม่พบตัวละคร" end
+	
+	-- หาผลไม้ที่ผู้เล่นกำลังถืออยู่ในมือ
+	local holdingFruit = character:FindFirstChildOfClass("Tool")
+	
+	if holdingFruit and string.find(holdingFruit.Name, "Fruit") then
+		-- ตรวจสอบว่ามีโฟลเดอร์คลังเก็บผลไม้ในผู้เล่นหรือยัง
+		local dataFolder = player:FindFirstChild("FruitStorage") or Instance.new("Folder", player)
+		dataFolder.Name = "FruitStorage"
+		
+		-- บันทึกจำนวนผลไม้ลงในคลัง (Leaderstats / Value)
+		local fruitValue = dataFolder:FindFirstChild(holdingFruit.Name)
+		if not fruitValue then
+			fruitValue = Instance.new("IntValue", dataFolder)
+			fruitValue.Name = holdingFruit.Name
+			fruitValue.Value = 0
+		end
+		
+		fruitValue.Value = fruitValue.Value + 1
+		holdingFruit:Destroy() -- ลบผลไม้ออกจากมือหลังจากเก็บเข้าคลังแล้ว
+		
+		return "เก็บผล " .. holdingFruit.Name .. " เข้าคลังสำเร็จ! (รวมมี: " .. fruitValue.Value .. " ชิ้น)"
+	end
+	
+	return "คุณต้องถือผลไม้ในมือก่อนจึงจะเก็บได้!"
+end
+
+-- ระบบเชื่อมต่อการสั่งงานจากหน้าจอ GUI
+FruitRemote.OnServerInvoke = function(player, actionType, argument)
+	if actionType == "RollFree" then
+		return FruitSystem.RollFree(player)
+	elseif actionType == "SpawnFruit" then
+		return FruitSystem.SpawnFruit(player, argument)
+	elseif actionType == "StoreFruit" then
+		return FruitSystem.StoreFruit(player)
+	end
+	return "ไม่พบคำสั่งที่ระบุ"
+end
